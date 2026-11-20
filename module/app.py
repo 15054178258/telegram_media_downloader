@@ -135,6 +135,7 @@ class TaskNode:
         task_type: TaskType = TaskType.Download,
         task_id: int = 0,
         topic_id: int = 0,
+        custom_path: Optional[str] = None,
     ):
         self.chat_id = chat_id
         self.from_user_id = from_user_id
@@ -175,6 +176,7 @@ class TaskNode:
         self.topic_id = topic_id
         self.reply_to_message = None
         self.cloud_drive_upload_stat_dict: dict = {}
+        self.custom_path = custom_path
 
     def skip_msg_id(self, msg_id: int):
         """Skip if message id out of range"""
@@ -707,15 +709,20 @@ class Application:
         elif self.cloud_drive_config.upload_adapter == "aligo":
             ret = await self.loop.run_in_executor(
                 self.executor,
-                CloudDrive.aligo_upload_file(
-                    self.cloud_drive_config, self.save_path, local_file_path
-                ),
+                CloudDrive.aligo_upload_file,
+                self.cloud_drive_config,
+                self.save_path,
+                local_file_path,
             )
 
         return ret
 
     def get_file_save_path(
-        self, media_type: str, chat_title: str, media_datetime: str
+        self,
+        media_type: str,
+        chat_title: str,
+        media_datetime: str,
+        custom_path: Optional[str] = None,
     ) -> str:
         """Get file save path prefix.
 
@@ -729,6 +736,9 @@ class Application:
 
         media_datetime: str
             media datetime
+
+        custom_path: Optional[str]
+            custom category folder appended as the last path level
 
         Returns
         -------
@@ -744,6 +754,8 @@ class Application:
                 res = os.path.join(res, media_datetime)
             elif prefix == "media_type":
                 res = os.path.join(res, media_type)
+        if custom_path:
+            res = os.path.join(res, custom_path)
         return res
 
     def get_file_name(

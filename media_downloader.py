@@ -110,9 +110,7 @@ def _check_timeout(retry: int, _: int):
         Try to download message 's id
 
     """
-    if retry == 2:
-        return True
-    return False
+    return retry >= 2
 
 
 def _can_download(_type: str, file_formats: dict, file_format: Optional[str]) -> bool:
@@ -137,7 +135,7 @@ def _can_download(_type: str, file_formats: dict, file_format: Optional[str]) ->
     """
     if _type in ["audio", "document", "video"]:
         allowed_formats: list = file_formats[_type]
-        if not file_format in allowed_formats and allowed_formats[0] != "all":
+        if "all" not in allowed_formats and file_format not in allowed_formats:
             return False
     return True
 
@@ -167,6 +165,7 @@ async def _get_media_meta(
     message: pyrogram.types.Message,
     media_obj: Union[Audio, Document, Photo, Video, VideoNote, Voice],
     _type: str,
+    custom_path: Optional[str] = None,
 ) -> Tuple[str, str, Optional[str]]:
     """Extract file name and file id from media object.
 
@@ -182,9 +181,10 @@ async def _get_media_meta(
     Tuple[str, str, Optional[str]]
         file_name, file_format
     """
+    mime_type = getattr(media_obj, "mime_type", None)
     if _type in ["audio", "document", "video"]:
         # pylint: disable = C0301
-        file_format: Optional[str] = media_obj.mime_type.split("/")[-1]  # type: ignore
+        file_format: Optional[str] = mime_type.split("/")[-1] if mime_type else None
     else:
         file_format = None
 
@@ -201,8 +201,10 @@ async def _get_media_meta(
 
     if _type in ["voice", "video_note"]:
         # pylint: disable = C0209
-        file_format = media_obj.mime_type.split("/")[-1]  # type: ignore
-        file_save_path = app.get_file_save_path(_type, dirname, datetime_dir_name)
+        file_format = (mime_type or "unknown").split("/")[-1]
+        file_save_path = app.get_file_save_path(
+            _type, dirname, datetime_dir_name, custom_path
+        )
         file_name = "{} - {}_{}.{}".format(
             message.id,
             _type,
@@ -247,7 +249,9 @@ async def _get_media_meta(
             app.get_file_name(message.id, file_name, caption) + file_name_suffix
         )
 
-        file_save_path = app.get_file_save_path(_type, dirname, datetime_dir_name)
+        file_save_path = app.get_file_save_path(
+            _type, dirname, datetime_dir_name, custom_path
+        )
 
         temp_file_name = os.path.join(app.temp_save_path, dirname, gen_file_name)
 
@@ -269,7 +273,10 @@ async def add_download_task(
 
 
 async def save_msg_to_file(
-    app, chat_id: Union[int, str], message: pyrogram.types.Message
+    app,
+    chat_id: Union[int, str],
+    message: pyrogram.types.Message,
+    custom_path: Optional[str] = None,
 ):
     """Write message text into file"""
     dirname = validate_title(
@@ -277,9 +284,10 @@ async def save_msg_to_file(
     )
     datetime_dir_name = message.date.strftime(app.date_format) if message.date else "0"
 
-    file_save_path = app.get_file_save_path("msg", dirname, datetime_dir_name)
+    file_save_path = app.get_file_save_path(
+        "msg", dirname, datetime_dir_name, custom_path
+    )
     file_name = os.path.join(
-        app.temp_save_path,
         file_save_path,
         f"{app.get_file_name(message.id, None, None)}.txt",
     )
@@ -305,7 +313,9 @@ async def download_task(
     )
 
     if app.enable_download_txt and message.text and not message.media:
-        download_status, file_name = await save_msg_to_file(app, node.chat_id, message)
+        download_status, file_name = await save_msg_to_file(
+            app, node.chat_id, message, node.custom_path
+        )
 
     if not node.bot:
         app.set_download_id(node, message.id, download_status)
@@ -402,7 +412,7 @@ async def download_media(
             if _media is None:
                 continue
             file_name, temp_file_name, file_format = await _get_media_meta(
-                node.chat_id, message, _media, _type
+                node.chat_id, message, _media, _type, node.custom_path
             )
             media_size = getattr(_media, "file_size", 0)
 
@@ -413,7 +423,9 @@ async def download_media(
             if _can_download(_type, file_formats, file_format):
                 if _is_exist(file_name):
                     file_size = os.path.getsize(file_name)
-                    if file_size or file_size == media_size:
+                    if file_size == media_size or (
+                        media_size == 0 and file_size > 0
+                    ):
                         logger.info(
                             f"id={message.id} {ui_file_name} "
                             f"{_t('already download,download skipped')}.\n"
@@ -469,10 +481,12 @@ async def download_media(
                     f"Message[{message.id}]: "
                     f"{_t('file reference expired for 3 retries, download skipped.')}"
                 )
+                break
         except pyrogram.errors.exceptions.flood_420.FloodWait as wait_err:
             await asyncio.sleep(wait_err.value)
-            logger.warning("Message[{}]: FlowWait {}", message.id, wait_err.value)
-            _check_timeout(retry, message.id)
+            logger.warning(
+                "Message[{}]: FloodWait {}", message.id, wait_err.value
+            )
         except TypeError:
             # pylint: disable = C0301
             logger.warning(
@@ -484,6 +498,7 @@ async def download_media(
                 logger.error(
                     f"Message[{message.id}]: {_t('Timing out after 3 reties, download skipped.')}"
                 )
+                break
         except Exception as e:
             # pylint: disable = C0301
             logger.error(

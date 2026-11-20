@@ -926,6 +926,9 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
         f"2. {_t('The download starts from the N message to the end of the M message')}. "
         f"{_t('When M is 0, it means the last message. The filter is optional')}\n"
         f"<i>/download https://t.me/12000000 N M [filter]</i>\n\n"
+        f"3. {_t('Download with a custom category folder')}\n"
+        "<i>/download https://t.me/12000000 N M folder_name</i>\n\n"
+        f"{_t('If the last argument is a valid filter expression it is used as a filter, otherwise it is used as the category folder name')}"
     )
 
     args = message.text.split(maxsplit=4)
@@ -954,16 +957,25 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
 
         limit = end_offset_id - start_offset_id + 1
 
-    download_filter = args[4] if len(args) > 4 else None
-
-    if download_filter:
-        download_filter = replace_date_time(download_filter)
+    download_filter = None
+    custom_path = None
+    if len(args) > 4:
+        arg4 = args[4]
+        download_filter = replace_date_time(arg4)
         res, err = _bot.filter.check_filter(download_filter)
-        if not res:
-            await client.send_message(
-                message.from_user.id, err, reply_to_message_id=message.id
-            )
-            return
+        if res:
+            custom_path = None
+        else:
+            # not a valid filter expression -> treat it as a custom folder name
+            download_filter = None
+            custom_path = validate_title(arg4.strip())
+            if custom_path in ("", ".", ".."):
+                await client.send_message(
+                    message.from_user.id,
+                    f"{_t('Invalid folder name')}: {arg4}",
+                    reply_to_message_id=message.id,
+                )
+                return
     try:
         chat_id, _, _ = await parse_link(_bot.client, url)
         if chat_id:
@@ -977,6 +989,8 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
             reply_message += (
                 f"download message id = {start_offset_id} - {end_offset_id} !"
             )
+            if custom_path:
+                reply_message += f"\ncustom folder: {custom_path}"
             last_reply_message = await client.send_message(
                 message.from_user.id, reply_message, reply_to_message_id=message.id
             )
@@ -990,6 +1004,7 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
                 end_offset_id=end_offset_id,
                 bot=_bot.bot,
                 task_id=_bot.gen_task_id(),
+                custom_path=custom_path,
             )
             _bot.add_task_node(node)
             _bot.app.loop.create_task(

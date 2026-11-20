@@ -100,13 +100,14 @@ async def update_download_status(
         ] = each_second_total_download
     else:
         each_second_total_download = down_byte
+        elapsed = max(cur_time - start_time, 0.001)
         _download_result[chat_id][message_id] = {
             "down_byte": down_byte,
             "total_size": total_size,
             "file_name": file_name,
             "start_time": start_time,
             "end_time": cur_time,
-            "download_speed": down_byte / (cur_time - start_time),
+            "download_speed": down_byte / elapsed,
             "each_second_total_download": each_second_total_download,
             "task_id": node.task_id,
         }

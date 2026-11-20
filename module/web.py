@@ -147,10 +147,11 @@ def index():
 @login_required
 def get_download_speed():
     """Get download speed"""
-    return (
-        '{ "download_speed" : "'
-        + format_byte(get_total_download_speed())
-        + '/s" , "upload_speed" : "0.00 B/s" } '
+    return jsonify(
+        {
+            "download_speed": f"{format_byte(get_total_download_speed())}/s",
+            "upload_speed": "0.00 B/s",
+        }
     )
 
 
@@ -187,7 +188,7 @@ def get_download_list():
     already_down = request.args.get("already_down") == "true"
 
     download_result = get_download_result()
-    result = "["
+    result = []
     for chat_id, messages in download_result.items():
         for idx, value in messages.items():
             is_already_down = value["down_byte"] == value["total_size"]
@@ -195,28 +196,23 @@ def get_download_list():
             if already_down and not is_already_down:
                 continue
 
-            if result != "[":
-                result += ","
-            download_speed = format_byte(value["download_speed"]) + "/s"
-            result += (
-                '{ "chat":"'
-                + f"{chat_id}"
-                + '", "id":"'
-                + f"{idx}"
-                + '", "filename":"'
-                + os.path.basename(value["file_name"])
-                + '", "total_size":"'
-                + f'{format_byte(value["total_size"])}'
-                + '" ,"download_progress":"'
+            total_size = value["total_size"]
+            progress = (
+                round(value["down_byte"] / total_size * 100, 1)
+                if total_size
+                else 0
             )
-            result += (
-                f'{round(value["down_byte"] / value["total_size"] * 100, 1)}'
-                + '" ,"download_speed":"'
-                + download_speed
-                + '" ,"save_path":"'
-                + value["file_name"].replace("\\", "/")
-                + '"}'
+            download_speed = format_byte(value["download_speed"]) + "/s"
+            result.append(
+                {
+                    "chat": f"{chat_id}",
+                    "id": f"{idx}",
+                    "filename": os.path.basename(value["file_name"]),
+                    "total_size": format_byte(total_size),
+                    "download_progress": progress,
+                    "download_speed": download_speed,
+                    "save_path": value["file_name"].replace("\\", "/"),
+                }
             )
 
-    result += "]"
-    return result
+    return jsonify(result)
