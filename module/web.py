@@ -3,11 +3,13 @@
 import logging
 import os
 import threading
+import time
 
 from flask import Flask, jsonify, render_template, request
 from flask_login import LoginManager, UserMixin, login_required, login_user
 
 import utils
+from module import db
 from module.app import Application
 from module.download_stat import (
     DownloadState,
@@ -30,6 +32,7 @@ _login_manager.login_view = "login"
 _login_manager.init_app(_flask_app)
 web_login_users: dict = {}
 deAesCrypt = AesBase64("1234123412ABCDEF", "ABCDEF1234123412")
+_web_start_time: float = time.time()
 
 
 class User(UserMixin):
@@ -173,9 +176,47 @@ def web_set_download_state():
 
 
 @_flask_app.route("/get_app_version")
+@login_required
 def get_app_version():
     """Get telegram_media_downloader version"""
     return utils.__version__
+
+
+@_flask_app.route("/get_stats")
+@login_required
+def get_stats():
+    """Session statistics for the dashboard"""
+    download_result = get_download_result()
+    downloading_count = 0
+    downloaded_count = 0
+    total_bytes = 0
+    for messages in download_result.values():
+        for value in messages.values():
+            total_size = value["total_size"]
+            if total_size and value["down_byte"] >= total_size:
+                downloaded_count += 1
+            else:
+                downloading_count += 1
+            total_bytes += value["down_byte"]
+
+    return jsonify(
+        {
+            "downloading_count": downloading_count,
+            "downloaded_count": downloaded_count,
+            "total_bytes": total_bytes,
+            "total_size": format_byte(total_bytes),
+            "download_speed": f"{format_byte(get_total_download_speed())}/s",
+            "uptime": int(time.time() - _web_start_time),
+            "version": utils.__version__,
+        }
+    )
+
+
+@_flask_app.route("/get_tasks")
+@login_required
+def get_tasks():
+    """Recent bot download tasks from the sqlite database"""
+    return jsonify([dict(row) for row in db.get_recent_tasks(30)])
 
 
 @_flask_app.route("/get_download_list")

@@ -100,3 +100,13 @@ def get_unfinished_tasks() -> List[sqlite3.Row]:
         "SELECT * FROM bot_download_task WHERE status != 'done' ORDER BY id"
     )
     return cur.fetchall()
+
+
+def get_recent_tasks(limit: int = 30) -> List[sqlite3.Row]:
+    """The most recent tasks regardless of status, newest first."""
+    if _conn is None:
+        return []
+    cur = _conn.execute(
+        "SELECT * FROM bot_download_task ORDER BY id DESC LIMIT ?", (limit,)
+    )
+    return cur.fetchall()

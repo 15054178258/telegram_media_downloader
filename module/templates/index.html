@@ -1,312 +1,243 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Telegram Media Downloader</title>
-  <link href="static/layui/css/layui.css" rel="stylesheet">
-  <link href="static/css/index.css" rel="stylesheet">
-  <style>
-    body {
-      padding: 6px 16px;
-    }
-  </style>
+  <link href="{{ url_for('static', filename='css/index.css') }}" rel="stylesheet">
 </head>
 
 <body>
-  <div class="layui-tab" lay-filter="telegram_media_downloader">
-    <div class="header-title layui-tab-brief">
-      <ul class="layui-tab-title">
-        <li class="layui-this">Downloading</li>
-        <li>Downloaded</li>
-        <!-- <li>Config</li> -->
-      </ul>
-      <div class="stop-btn" id="download_state" data-value="{{ download_state }}" onclick="download_state_change(this)"> {{ download_state }} </div>
-    </div>
-    <div class="layui-tab-content" style="padding: 0;">
-      <div class="layui-tab-item layui-show">
-        <table class="layui-hide" id="download_list" lay-filter="download_list"></table>
-      </div>
-      <div class="layui-tab-item">
-        <table class="layui-hide" id="already_download_list" lay-filter="already_download_list"></table>
-      </div>
-      <!-- <div class="layui-tab-item">
-        <form class="layui-form" action="">
-        under development
-      </form>
-      </div> -->
-    </div>
-  </div>
-
-  <div class="layui-footer">
-    <div class="layui-row layui-col-space1">
-      <div class="layui-col-md2">
-        <p>Telegram Media Downloader V <b id="app_version" style="color: #009688;">undefined</b>
-      </div>
-      <div class="layui-col-md7">
-      </div>
-      <div class="layui-col-md3">
-        <div style="padding: 5px; float: right;">
-          <!-- <i class="layui-icon layui-icon-upload-circle" style="font-size: 16px; color: #1E9FFF; font-weight: 700;">
-            <i id="upload_speed_title" style="color: black;"> 0.00 B/s </i>
-          </i> -->
-
-          <i class="layui-icon layui-icon-download-circle"
-            style="font-size: 16px; color: #5FB878; font-weight: 700; margin-left: 15px;">
-            <i id="download_speed_title" style="color: black;"> 0.00 B/s </i>
-          </i>
-
-        </div>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-dot"></span>
+      <div class="brand-text">
+        <h1>TG Media Downloader</h1>
+        <span class="version" id="app_version">v-</span>
       </div>
     </div>
-  </div>
+    <div class="topbar-actions">
+      <div class="speed-badge" title="total download speed">
+        <span class="speed-icon">&#8595;</span>
+        <span id="total_speed">0 B/s</span>
+      </div>
+      <button id="state_btn" class="state-btn" data-value="{{ download_state }}"
+        onclick="toggleState(this)">pause</button>
+    </div>
+  </header>
 
-  <script src="static/layui/layui.js"></script>
+  <section class="stats">
+    <div class="stat-card">
+      <div class="stat-num" id="stat_downloading">0</div>
+      <div class="stat-label">Downloading</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" id="stat_downloaded">0</div>
+      <div class="stat-label">Completed</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" id="stat_total_size">0 B</div>
+      <div class="stat-label">Received</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" id="stat_uptime">-</div>
+      <div class="stat-label">Uptime</div>
+    </div>
+  </section>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="downloading" onclick="switchTab('downloading')">Downloading</button>
+    <button class="tab" data-tab="completed" onclick="switchTab('completed')">Completed</button>
+    <button class="tab" data-tab="tasks" onclick="switchTab('tasks')">Tasks</button>
+  </nav>
+
+  <main>
+    <div id="tab-downloading" class="tab-panel active">
+      <div id="downloading_list" class="item-list"></div>
+    </div>
+    <div id="tab-completed" class="tab-panel">
+      <div id="completed_list" class="item-list"></div>
+    </div>
+    <div id="tab-tasks" class="tab-panel">
+      <div id="tasks_list" class="item-list"></div>
+    </div>
+  </main>
+
   <script>
+    "use strict";
 
-    layui.use(['table', 'element'], function () {
-      var table = layui.table;
-      var element = layui.element;
-      var layer = layui.layer;
-      var $ = layui.$;
-      var already_download_list_data = new Array()
-      var download_list_table_data = new Array()
+    const escapeHtml = (value) =>
+      String(value ?? "").replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[c]));
 
-      $.ajax({
-        url: "get_app_version"
-        , type: "get"
-        , async: false
-        , dataType: "text"
-        , success: function (result) {
-          $("#app_version").html(result)
-        }
-      });
+    const fmtUptime = (seconds) => {
+      const d = Math.floor(seconds / 86400);
+      const h = Math.floor((seconds % 86400) / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      if (d > 0) return `${d}d ${h}h`;
+      if (h > 0) return `${h}h ${m}m`;
+      return `${m}m`;
+    };
 
-      download_state_change = function(e) {
-        $.ajax({
-        url: "set_download_state?state=" + e.dataset.value
-        , type: "post"
-        , async: false
-        , dataType: "text"
-        , success: function (result) {
-          $("#download_state").html(result)
-          e.dataset.value=result
-        }
-      });
+    const barClass = (progress) => {
+      if (progress >= 100) return "bar-green";
+      if (progress > 30) return "bar-blue";
+      return "bar-red";
+    };
+
+    async function fetchJSON(url) {
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) throw new Error(`${response.status}`);
+      return response.json();
     }
 
-      tableIns = table.render({
-        elem: '#download_list'
-        , data: download_list_table_data
-        , title: 'download_list'
-        , height: 'full-160'
-        , limit: 10000
-        , cols: [[
-          { field: 'chat', title: 'chat', width: 100 },
-          { field: 'id', title: 'id', width: 100 }
-          , { field: 'filename', title: 'file name', align: 'center' }
-          , { field: 'total_size', title: 'total byte', align: 'center' }
-          , {
-            field: 'download_progress', title: 'download progress', align: 'center', templet: function (d) {
-              var ys = '';
-              if (30 < d.download_progress && d.download_progress < 100) {
-                ys = 'layui-bg-blue'
-              } else if (0 < d.download_progress && d.download_progress <= 30) {
-                ys = 'layui-bg-red'
-              }
-              else if (100 == d.download_progress) {
-                ys = 'layui-bg-green'
-              }
-              return '<div class="layui-progress layui-progress-big" lay-showpercent="true"  lay-filter="down-' + d.id + '"><div class="layui-progress-bar ' + ys + '" lay-percent="' + d.download_progress + '%"></div></div>'
-            }
-          }
-          , { field: 'download_speed', title: 'download speed', align: 'center' }
-        ]]
-        , done: function (res, currentCount) {
-          element.render()
-        }
+    async function toggleState(button) {
+      try {
+        const result = await fetchJSON(
+          `set_download_state?state=${encodeURIComponent(button.dataset.value)}`
+        );
+        button.dataset.value = result;
+        button.textContent = result;
+      } catch (err) { /* keep old state */ }
+    }
+
+    /* ---------- tabs ---------- */
+
+    const refreshers = {
+      downloading: refreshDownloading,
+      completed: refreshCompleted,
+      tasks: refreshTasks,
+    };
+    let activeTab = "downloading";
+
+    function switchTab(name) {
+      activeTab = name;
+      document.querySelectorAll(".tab").forEach((el) => {
+        el.classList.toggle("active", el.dataset.tab === name);
       });
-
-      table.render({
-        elem: '#already_download_list'
-        , data: already_download_list_data
-        , title: 'already_download_list'
-        , height: 'full-160'
-        , limit: 10000
-        , cols: [[
-
-          { field: 'id', title: 'id', width: 100 }
-          , { field: 'filename', title: 'file name', align: 'center' }
-          , { field: 'total_size', title: 'total size', align: 'center' }
-          , { field: 'save_path', title: 'save path', align: 'center' }
-        ]], done: function (res, currentCount) {
-          element.render()
-        }
+      document.querySelectorAll(".tab-panel").forEach((el) => {
+        el.classList.toggle("active", el.id === `tab-${name}`);
       });
+      refreshActiveTab();
+    }
 
-      function update_download_list() {
-        $.ajax({
-          url: "get_download_list?already_down=false"
-          , type: "get"
-          , async: false
-          , dataType: "json"
-          , success: function (result) {
-            // first remove finish and update
-            for (var j = 0, len2 = download_list_table_data.length; j < len2; j++) {
-              find_iter = false
-              for (var i = 0, len = result.length; i < len; i++) {
-                if (result[i].chat == download_list_table_data[j].chat && result[i].id == download_list_table_data[j].id) {
-                  download_list_table_data[j].download_progress = result[i].download_progress
-                  var progress = download_list_table_data[j].download_progress
-                  element.progress('down-' + result[i].chat + '-' + result[i].id, progress + '%');
+    function refreshActiveTab() {
+      refreshers[activeTab]().catch(() => { });
+    }
 
-                  var download_speed_obj = $('div[lay-filter="down_speed-' + result[i].chat + '-' + result[i].id + '"]')
-                  download_speed_obj.html(result[i].download_speed)
+    /* ---------- downloading ---------- */
 
-                  if (progress == 100) {
-                    var device_obj = $('div[lay-filter="down-' + result[i].chat + '-' + result[i].id + '"] div')
-                    device_obj.removeClass("layui-bg-blue")
-                    device_obj.addClass("layui-bg-green")
-                    obj = $('div[lay-id="download_list"]  tr[data-index="' + result[i].chat + '-' + result[i].id + '"]')
-                    obj.remove()
-                  }
-                  find_iter = true
-                  break
-                }
-              }
+    async function refreshDownloading() {
+      const items = await fetchJSON("get_download_list?already_down=false");
+      const box = document.getElementById("downloading_list");
+      if (!items.length) {
+        box.innerHTML = `<div class="empty">No active downloads</div>`;
+        return;
+      }
+      box.innerHTML = items.map((item) => `
+        <div class="dl-card">
+          <div class="dl-head">
+            <span class="dl-name" title="${escapeHtml(item.save_path)}">${escapeHtml(item.filename)}</span>
+            <span class="dl-size">${escapeHtml(item.total_size)}</span>
+          </div>
+          <div class="progress">
+            <div class="bar ${barClass(item.download_progress)}"
+                 style="width:${Math.min(item.download_progress, 100)}%"></div>
+          </div>
+          <div class="dl-meta">
+            <span>#${escapeHtml(item.id)} &middot; ${escapeHtml(item.chat)}</span>
+            <span>${item.download_progress}% &middot; ${escapeHtml(item.download_speed)}</span>
+          </div>
+        </div>`).join("");
+    }
 
-            }
+    /* ---------- completed ---------- */
 
-            // new task
-            for (var i = 0, len = result.length; i < len; i++) {
-              find_iter = false
-              for (var j = 0, len2 = download_list_table_data.length; j < len2; j++) {
-                if (result[i].chat == download_list_table_data[j].chat && result[i].id == download_list_table_data[j].id) {
-                  find_iter = true
-                  break
-                }
-              }
+    async function refreshCompleted() {
+      const items = await fetchJSON("get_download_list?already_down=true");
+      const box = document.getElementById("completed_list");
+      const done = items.filter((item) => Number(item.download_progress) === 100);
+      if (!done.length) {
+        box.innerHTML = `<div class="empty">Nothing completed yet (this session)</div>`;
+        return;
+      }
+      box.innerHTML = done.map((item) => `
+        <div class="done-card">
+          <div class="dl-head">
+            <span class="dl-name">${escapeHtml(item.filename)}</span>
+            <span class="dl-size">${escapeHtml(item.total_size)}</span>
+          </div>
+          <div class="done-path" title="${escapeHtml(item.save_path)}">${escapeHtml(item.save_path)}</div>
+        </div>`).join("");
+    }
 
-              if (find_iter || result[i].download_progress == 100) {
-                continue;
-              }
-              // not found
-              obj = $('div[lay-id="download_list"]  .layui-table-body .layui-table tbody')
-              var tr = ' <tr data-index="' + result[i].chat + '-' + result[i].id + '">' +
-                '<td data-field="id" data-key="1-0-0" class=""><div class="layui-table-cell laytable-cell-1-0-0">' + result[i].chat + '</div></td>' +
-                '<td data-field="id" data-key="1-0-1" class=""><div class="layui-table-cell laytable-cell-1-0-1">' + result[i].id + '</div></td>' +
-                '<td data-field="filename" data-key="1-0-2" class=""><div class="layui-table-cell laytable-cell-1-0-2" align="center">' + result[i].filename + '</div></td>' +
-                '<td data-field="total_size" data-key="1-0-3" class=""><div class="layui-table-cell laytable-cell-1-0-3" align="center">' + result[i].total_size + '</div></td>' +
-                '<td data-field="download_progress" data-key="1-0-4" data-content="' + result[i].download_progress + '" class=""><div class="layui-table-cell laytable-cell-1-0-4" align="center"><div class="layui-progress layui-progress-big" lay-showpercent="true" lay-filter="down-' + result[i].chat + '-' + result[i].id + '"><div class="layui-progress-bar layui-bg-blue" lay-percent="' + result[i].download_progress + '%" style="width: ' + result[i].download_progress + '%;"><span class="layui-progress-text">' + result[i].download_progress + '%</span></div></div></div></td>' +
-                '<td data-field="download_speed" data-key="1-0-5" class=""><div class="layui-table-cell laytable-cell-1-0-5" align="center"lay-filter="down_speed-' + result[i].chat + '-' + result[i].id + '">' + result[i].download_speed + '</div></td>' +
-                "  </tr>";
-              obj.append(tr)
-              download_list_table_data.push(result[i])
+    /* ---------- tasks (sqlite history) ---------- */
 
-              if (download_list_table_data.length == 1) {
-                $(".layui-none").remove()
-              }
+    const statusClass = {
+      done: "badge-done",
+      running: "badge-running",
+      stopped: "badge-stopped",
+    };
 
-              element.render()
+    async function refreshTasks() {
+      const tasks = await fetchJSON("get_tasks");
+      const box = document.getElementById("tasks_list");
+      if (!tasks.length) {
+        box.innerHTML = `<div class="empty">No bot tasks recorded</div>`;
+        return;
+      }
+      box.innerHTML = tasks.map((task) => {
+        const folder = task.custom_path
+          ? `<div class="task-folder">&#128193; ${escapeHtml(task.custom_path)}</div>` : "";
+        const filter = task.download_filter
+          ? `<div class="task-filter">&#128269; ${escapeHtml(task.download_filter)}</div>` : "";
+        return `
+        <div class="task-card">
+          <div class="dl-head">
+            <span class="task-chat">chat ${escapeHtml(task.chat_id)}</span>
+            <span class="badge ${statusClass[task.status] || ""}">${escapeHtml(task.status)}</span>
+          </div>
+          <div class="task-range">messages ${task.start_id} - ${task.end_id === 0 ? "end" : task.end_id}</div>
+          ${folder}${filter}
+          <div class="task-time">${escapeHtml(task.updated_at || "")}</div>
+        </div>`;
+      }).join("");
+    }
 
-            }
+    /* ---------- stats ---------- */
 
-            element.render()
-          }
-        });
+    async function refreshStats() {
+      const stats = await fetchJSON("get_stats");
+      document.getElementById("stat_downloading").textContent = stats.downloading_count;
+      document.getElementById("stat_downloaded").textContent = stats.downloaded_count;
+      document.getElementById("stat_total_size").textContent = stats.total_size;
+      document.getElementById("stat_uptime").textContent = fmtUptime(stats.uptime);
+      document.getElementById("total_speed").textContent = stats.download_speed;
+      document.getElementById("app_version").textContent = `v${stats.version}`;
+    }
 
-      };
+    /* ---------- main loop ---------- */
 
+    function tick() {
+      refreshStats().catch(() => { });
+      refreshActiveTab();
+    }
 
-      function update_download_status() {
-        $.ajax({
-          url: "get_download_status"
-          , type: "get"
-          , async: false
-          , dataType: "json"
-          , success: function (result) {
-            $("#download_speed_title").html(result.download_speed)
-          }
-        });
-
-      };
-
-
-      var update_download_list_int = self.setInterval(update_download_list, 1000);
-      var update_download_status_int = self.setInterval(update_download_status, 1000);
-      var update_already_download_list_int = 0;
-
-
-      function update_already_download_list() {
-        $.ajax({
-          url: "get_download_list?already_down=true"
-          , type: "get"
-          , async: false
-          , dataType: "json"
-          , success: function (result) {
-            // if not exist then add
-            for (var i = 0, len = result.length; i < len; i++) {
-              if (result[i].download_progress != 100) {
-                continue
-              }
-
-              find_iter = false
-
-              for (var j = 0, len2 = already_download_list_data.length; j < len2; j++) {
-                if (result[i].chat == download_list_table_data[i].chat && result[i].id == already_download_list_data[j].id) {
-                  find_iter = true
-                  break
-                }
-              }
-
-              if (find_iter) {
-                continue;
-              }
-              // not found
-              obj = $('div[lay-id="already_download_list"]  .layui-table-body .layui-table tbody')
-              var tr = ' <tr data-index="' + result[i].chat + '-' + result[i].id + '">' +
-                '<td data-field="id" data-key="2-0-0" class=""><div class="layui-table-cell laytable-cell-2-0-0">' + result[i].id + '</div></td>' +
-                '<td data-field="filename" data-key="2-0-1" class=""><div class="layui-table-cell laytable-cell-2-0-1" align="center">' + result[i].filename + '</div></td>' +
-                '<td data-field="total_size" data-key="2-0-2" class=""><div class="layui-table-cell laytable-cell-2-0-2" align="center">' + result[i].total_size + '</div></td>' +
-                '<td data-field="save_path" data-key="2-0-3" class=""><div class="layui-table-cell laytable-cell-2-0-3" align="center">' + result[i].save_path + '</div></td>' +
-                "  </tr>";
-              obj.append(tr)
-
-              already_download_list_data.push(result[i])
-
-              if (already_download_list_data.length == 1) {
-                $(".layui-none").remove()
-              }
-              element.render()
-            }
-
-            element.render()
-          }
-        });
-
-      };
-
-      element.on('tab(telegram_media_downloader)', function (data) {
-        if (data.index != 0) {
-          clearInterval(update_download_list_int);
-        }
-
-        if (data.index == 0) {
-          update_download_list_int = self.setInterval(update_download_list, 1000);
-        }
-
-        if (data.index != 1) {
-          clearInterval(update_already_download_list_int);
-        }
-
-        if (data.index == 1) {
-          update_already_download_list_int = self.setInterval(update_already_download_list, 1000);
-        }
-
-      });
-
+    document.addEventListener("visibilitychange", () => {
+      const indicator = window.__tdlTimer;
+      if (document.hidden) {
+        clearInterval(indicator);
+        window.__tdlTimer = 0;
+      } else if (!indicator) {
+        tick();
+        window.__tdlTimer = setInterval(tick, 1000);
+      }
     });
+
+    tick();
+    window.__tdlTimer = setInterval(tick, 1000);
   </script>
 </body>
 

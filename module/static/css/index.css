@@ -1,16 +1,354 @@
-.header-title {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-}
-.header-title .stop-btn {
-  padding: 8px;
-  border: 1px solid #009688;
-  border-radius: 4px;
-  font-size: 16px;
-  color: #009688;
-  cursor: pointer;
+/* Telegram Media Downloader - dashboard (vanilla, mobile-first) */
+
+:root {
+  --bg: #f4f6f8;
+  --card: #ffffff;
+  --text: #24313f;
+  --text-dim: #7a8694;
+  --accent: #009688;
+  --accent-soft: rgba(0, 150, 136, 0.12);
+  --border: #e4e9ee;
+  --danger: #e05a4e;
+  --blue: #1e9fff;
+  --radius: 12px;
+  --shadow: 0 1px 3px rgba(16, 32, 48, 0.08);
 }
 
-/*# sourceMappingURL=index.css.map */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+}
+
+/* ---------- topbar ---------- */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.brand-text h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.version {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.speed-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: 999px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.speed-icon {
+  font-size: 13px;
+}
+
+.state-btn {
+  padding: 7px 16px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.state-btn:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ---------- stats ---------- */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+  padding: 14px 16px 0;
+}
+
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  box-shadow: var(--shadow);
+}
+
+.stat-num {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.stat-label {
+  margin-top: 2px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+/* ---------- tabs ---------- */
+
+.tabs {
+  display: flex;
+  gap: 6px;
+  padding: 12px 16px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.tab {
+  padding: 8px 16px;
+  border: none;
+  background: transparent;
+  border-radius: 8px 8px 0 0;
+  color: var(--text-dim);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-panel {
+  display: none;
+  padding: 12px 16px 24px;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+/* ---------- item cards ---------- */
+
+.item-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.empty {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.dl-card,
+.done-card,
+.task-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  box-shadow: var(--shadow);
+}
+
+.dl-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.dl-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dl-size {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress {
+  margin-top: 8px;
+  height: 10px;
+  background: #edf1f4;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.bar {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.6s ease;
+}
+
+.bar-red {
+  background: var(--danger);
+}
+
+.bar-blue {
+  background: var(--blue);
+}
+
+.bar-green {
+  background: var(--accent);
+}
+
+.dl-meta {
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.done-path {
+  margin-top: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+/* ---------- tasks ---------- */
+
+.task-chat {
+  font-weight: 700;
+}
+
+.badge {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge-done {
+  background: rgba(0, 150, 136, 0.12);
+  color: var(--accent);
+}
+
+.badge-running {
+  background: rgba(30, 159, 255, 0.12);
+  color: var(--blue);
+}
+
+.badge-stopped {
+  background: rgba(224, 90, 78, 0.12);
+  color: var(--danger);
+}
+
+.task-range {
+  margin-top: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.task-folder,
+.task-filter {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.task-time {
+  margin-top: 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+/* ---------- mobile ---------- */
+
+@media (max-width: 600px) {
+  .stats {
+    grid-template-columns: repeat(2, 1fr);
+    padding: 10px 12px 0;
+  }
+
+  .tab-panel {
+    padding: 10px 12px 20px;
+  }
+
+  .topbar {
+    padding: 8px 12px;
+  }
+
+  .brand-text h1 {
+    font-size: 14px;
+  }
+
+  .speed-badge {
+    padding: 5px 10px;
+    font-size: 13px;
+  }
+
+  .state-btn {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+
+  .stat-num {
+    font-size: 17px;
+  }
+}
