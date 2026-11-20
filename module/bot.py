@@ -23,6 +23,7 @@ from module.app import (
     TaskType,
     UploadStatus,
 )
+from module import db
 from module.filter import Filter
 from module.get_chat_history_v2 import get_chat_history_v2
 from module.language import Language, _t
@@ -106,6 +107,11 @@ class DownloadBot:
 
             for key, value in self.task_node.copy().items():
                 if value.is_running and value.is_finish():
+                    if value.db_task_id:
+                        db.update_task_status(
+                            value.db_task_id,
+                            "stopped" if value.is_stop_transmission else "done",
+                        )
                     self.remove_task_node(key)
             await asyncio.sleep(3)
 
@@ -180,12 +186,16 @@ class DownloadBot:
             ),
             types.BotCommand("set_language", _t("Set language")),
             types.BotCommand("stop", _t("Stop bot download or forward")),
+            types.BotCommand("resume", _t("Resume unfinished tasks")),
         ]
 
         self.app = app
         self.client = client
         self.add_download_task = add_download_task
         self.download_chat_task = download_chat_task
+
+        # init sqlite db for task persistence
+        db.init_db(os.path.join(os.path.abspath("."), "db", "bot_task.db"))
 
         # load config
         if os.path.exists(self.config_path):
@@ -286,6 +296,14 @@ class DownloadBot:
             MessageHandler(
                 stop,
                 filters=pyrogram.filters.command(["stop"])
+                & pyrogram.filters.user(self.allowed_user_ids),
+            )
+        )
+
+        self.bot.add_handler(
+            MessageHandler(
+                resume_tasks,
+                filters=pyrogram.filters.command(["resume"])
                 & pyrogram.filters.user(self.allowed_user_ids),
             )
         )
@@ -392,7 +410,8 @@ async def send_help_str(client: pyrogram.Client, chat_id):
         f"/listen_forward - {_t('Listen for forwarded messages')}\n"
         f"/forward_to_comments - {_t('Forward a specific media to a comment section')}\n"
         f"/set_language - {_t('Set language')}\n"
-        f"/stop - {_t('Stop bot download or forward')}\n\n"
+        f"/stop - {_t('Stop bot download or forward')}\n"
+        f"/resume - {_t('Resume unfinished tasks')}\n\n"
         # f"/add_replace_ad - {_t('Add replace advertisement filter')}\n"
         # f"/remove_replace_ad - {_t('Remove replace advertisement filter')}\n"
         # f"/add_filter_ad - {_t('Add filter advertisement filter')}\n"
@@ -1006,6 +1025,9 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
                 task_id=_bot.gen_task_id(),
                 custom_path=custom_path,
             )
+            node.db_task_id = db.add_task(
+                entity.id, start_offset_id, end_offset_id, custom_path, download_filter
+            )
             _bot.add_task_node(node)
             _bot.app.loop.create_task(
                 _bot.download_chat_task(_bot.client, chat_download_config, node)
@@ -1018,6 +1040,90 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
             f"{_t('Exception message')}: {e}",
         )
         return
+
+
+async def resume_tasks(client: pyrogram.Client, message: pyrogram.types.Message):
+    """List unfinished download tasks, or re-enqueue selected ones.
+
+    Usage:
+        /resume          - list unfinished tasks
+        /resume <id> ... - resume the tasks with the given db row ids
+    """
+    args = message.text.split(maxsplit=2)
+    unfinished = db.get_unfinished_tasks()
+
+    if len(args) == 1:
+        if not unfinished:
+            await client.send_message(
+                message.from_user.id, _t("No unfinished tasks")
+            )
+            return
+
+        lines = [_t("Unfinished tasks (use /resume <id> to resume):")]
+        for row in unfinished:
+            folder = f" -> {row['custom_path']}" if row["custom_path"] else ""
+            lines.append(
+                f"[{row['id']}] chat {row['chat_id']} "
+                f"{row['start_id']} - {row['end_id']}"
+                f"{folder} ({row['status']})"
+            )
+        await client.send_message(message.from_user.id, "\n".join(lines))
+        return
+
+    try:
+        task_ids = [int(item) for item in args[1].split()]
+    except ValueError:
+        await client.send_message(
+            message.from_user.id, f"{_t('Invalid task id')}: {args[1]}"
+        )
+        return
+
+    resumed_count = 0
+    for task_id in task_ids:
+        row = db.get_task(task_id)
+        if row is None or row["status"] == "done":
+            continue
+
+        chat_id = (
+            int(row["chat_id"]) if str(row["chat_id"]).lstrip("-").isdigit()
+            else row["chat_id"]
+        )
+        chat_download_config = ChatDownloadConfig()
+        chat_download_config.last_read_message_id = row["start_id"]
+        chat_download_config.download_filter = row["download_filter"]
+
+        limit = 0
+        if row["end_id"]:
+            limit = row["end_id"] - row["start_id"] + 1
+
+        node = TaskNode(
+            chat_id=chat_id,
+            from_user_id=message.from_user.id,
+            limit=limit,
+            start_offset_id=row["start_id"],
+            end_offset_id=row["end_id"],
+            bot=_bot.bot,
+            task_id=_bot.gen_task_id(),
+            custom_path=row["custom_path"],
+        )
+        node.db_task_id = row["id"]
+
+        db.update_task_status(row["id"], "running")
+        _bot.add_task_node(node)
+        _bot.app.loop.create_task(
+            _bot.download_chat_task(_bot.client, chat_download_config, node)
+        )
+        resumed_count += 1
+
+    if resumed_count:
+        await client.send_message(
+            message.from_user.id,
+            f"{_t('Resumed tasks')}: {resumed_count}",
+        )
+    else:
+        await client.send_message(
+            message.from_user.id, _t("No unfinished tasks")
+        )
 
 
 async def get_forward_task_node(
