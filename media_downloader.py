@@ -405,7 +405,9 @@ async def download_media(
     task_start_time: float = time.time()
     media_size = 0
     _media = None
-    message = await fetch_message(client, message)
+    # NOTE: do not pre-fetch the message here, it costs one extra API
+    # round-trip per file. Expired file references are handled by the
+    # BadRequest branch below which re-fetches the message on demand.
     try:
         for _type in media_types:
             _media = getattr(message, _type, None)
@@ -465,7 +467,6 @@ async def download_media(
 
             if temp_download_path and isinstance(temp_download_path, str):
                 _check_download_finish(media_size, temp_download_path, ui_file_name)
-                await asyncio.sleep(0.5)
                 _move_to_download_path(temp_download_path, file_name)
                 # TODO: if not exist file size or media
                 return DownloadStatus.SuccessDownload, file_name
