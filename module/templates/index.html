@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Telegram Media Downloader</title>
+  <title>TG 媒体下载器</title>
   <link href="{{ url_for('static', filename='css/index.css') }}" rel="stylesheet">
 </head>
 
@@ -13,43 +13,43 @@
     <div class="brand">
       <span class="brand-dot"></span>
       <div class="brand-text">
-        <h1>TG Media Downloader</h1>
+        <h1>TG 媒体下载器</h1>
         <span class="version" id="app_version">v-</span>
       </div>
     </div>
     <div class="topbar-actions">
-      <div class="speed-badge" title="total download speed">
+      <div class="speed-badge" title="总下载速度">
         <span class="speed-icon">&#8595;</span>
         <span id="total_speed">0 B/s</span>
       </div>
       <button id="state_btn" class="state-btn" data-value="{{ download_state }}"
-        onclick="toggleState(this)">pause</button>
+        onclick="toggleState(this)">暂停</button>
     </div>
   </header>
 
   <section class="stats">
     <div class="stat-card">
       <div class="stat-num" id="stat_downloading">0</div>
-      <div class="stat-label">Downloading</div>
+      <div class="stat-label">下载中</div>
     </div>
     <div class="stat-card">
       <div class="stat-num" id="stat_downloaded">0</div>
-      <div class="stat-label">Completed</div>
+      <div class="stat-label">已完成</div>
     </div>
     <div class="stat-card">
       <div class="stat-num" id="stat_total_size">0 B</div>
-      <div class="stat-label">Received</div>
+      <div class="stat-label">累计接收</div>
     </div>
     <div class="stat-card">
       <div class="stat-num" id="stat_uptime">-</div>
-      <div class="stat-label">Uptime</div>
+      <div class="stat-label">运行时长</div>
     </div>
   </section>
 
   <nav class="tabs">
-    <button class="tab active" data-tab="downloading" onclick="switchTab('downloading')">Downloading</button>
-    <button class="tab" data-tab="completed" onclick="switchTab('completed')">Completed</button>
-    <button class="tab" data-tab="tasks" onclick="switchTab('tasks')">Tasks</button>
+    <button class="tab active" data-tab="downloading" onclick="switchTab('downloading')">下载中</button>
+    <button class="tab" data-tab="completed" onclick="switchTab('completed')">已完成</button>
+    <button class="tab" data-tab="tasks" onclick="switchTab('tasks')">任务</button>
   </nav>
 
   <main>
@@ -76,9 +76,9 @@
       const d = Math.floor(seconds / 86400);
       const h = Math.floor((seconds % 86400) / 3600);
       const m = Math.floor((seconds % 3600) / 60);
-      if (d > 0) return `${d}d ${h}h`;
-      if (h > 0) return `${h}h ${m}m`;
-      return `${m}m`;
+      if (d > 0) return `${d}天${h}小时`;
+      if (h > 0) return `${h}小时${m}分`;
+      return `${m}分钟`;
     };
 
     const barClass = (progress) => {
@@ -99,7 +99,9 @@
           `set_download_state?state=${encodeURIComponent(button.dataset.value)}`
         );
         button.dataset.value = result;
-        button.textContent = result;
+        // backend answers with "pause" (now downloading -> click to pause)
+        // or "continue" (now paused -> click to continue)
+        button.textContent = result === "pause" ? "暂停" : "继续";
       } catch (err) { /* keep old state */ }
     }
 
@@ -133,7 +135,7 @@
       const items = await fetchJSON("get_download_list?already_down=false");
       const box = document.getElementById("downloading_list");
       if (!items.length) {
-        box.innerHTML = `<div class="empty">No active downloads</div>`;
+        box.innerHTML = `<div class="empty">暂无进行中的下载</div>`;
         return;
       }
       box.innerHTML = items.map((item) => `
@@ -160,7 +162,7 @@
       const box = document.getElementById("completed_list");
       const done = items.filter((item) => Number(item.download_progress) === 100);
       if (!done.length) {
-        box.innerHTML = `<div class="empty">Nothing completed yet (this session)</div>`;
+        box.innerHTML = `<div class="empty">本次运行还没有已完成的文件</div>`;
         return;
       }
       box.innerHTML = done.map((item) => `
@@ -180,12 +182,17 @@
       running: "badge-running",
       stopped: "badge-stopped",
     };
+    const statusText = {
+      done: "已完成",
+      running: "进行中",
+      stopped: "已停止",
+    };
 
     async function refreshTasks() {
       const tasks = await fetchJSON("get_tasks");
       const box = document.getElementById("tasks_list");
       if (!tasks.length) {
-        box.innerHTML = `<div class="empty">No bot tasks recorded</div>`;
+        box.innerHTML = `<div class="empty">暂无任务记录</div>`;
         return;
       }
       box.innerHTML = tasks.map((task) => {
@@ -195,22 +202,22 @@
           ? `<div class="task-filter">&#128269; ${escapeHtml(task.download_filter)}</div>` : "";
         const actions = [];
         if (task.status === "running") {
-          actions.push(`<button class="btn-sm" onclick="taskAction(${task.id}, 'stop')">&#9209; Stop</button>`);
-          actions.push(`<button class="btn-sm danger" onclick="taskAction(${task.id}, 'delete')">&#128465; Delete</button>`);
+          actions.push(`<button class="btn-sm" onclick="taskAction(${task.id}, 'stop')">&#9209; 停止</button>`);
+          actions.push(`<button class="btn-sm danger" onclick="taskAction(${task.id}, 'delete')">&#128465; 删除</button>`);
         } else if (task.status === "stopped") {
-          actions.push(`<button class="btn-sm" onclick="taskAction(${task.id}, 'resume')">&#9654; Resume</button>`);
-          actions.push(`<button class="btn-sm danger" onclick="taskAction(${task.id}, 'delete')">&#128465; Delete</button>`);
+          actions.push(`<button class="btn-sm" onclick="taskAction(${task.id}, 'resume')">&#9654; 恢复</button>`);
+          actions.push(`<button class="btn-sm danger" onclick="taskAction(${task.id}, 'delete')">&#128465; 删除</button>`);
         } else {
-          actions.push(`<button class="btn-sm" onclick="taskAction(${task.id}, 'resume')">&#8635; Run again</button>`);
-          actions.push(`<button class="btn-sm danger" onclick="taskAction(${task.id}, 'delete')">&#128465; Delete</button>`);
+          actions.push(`<button class="btn-sm" onclick="taskAction(${task.id}, 'resume')">&#8635; 重新下载</button>`);
+          actions.push(`<button class="btn-sm danger" onclick="taskAction(${task.id}, 'delete')">&#128465; 删除</button>`);
         }
         return `
         <div class="task-card">
           <div class="dl-head">
-            <span class="task-chat">chat ${escapeHtml(task.chat_id)}</span>
-            <span class="badge ${statusClass[task.status] || ""}">${escapeHtml(task.status)}</span>
+            <span class="task-chat">会话 ${escapeHtml(task.chat_id)}</span>
+            <span class="badge ${statusClass[task.status] || ""}">${escapeHtml(statusText[task.status] || task.status)}</span>
           </div>
-          <div class="task-range">messages ${task.start_id} - ${task.end_id === 0 ? "end" : task.end_id}</div>
+          <div class="task-range">消息 ${task.start_id} - ${task.end_id === 0 ? "最新" : task.end_id}</div>
           ${folder}${filter}
           <div class="task-time">${escapeHtml(task.updated_at || "")}</div>
           <div class="task-actions">${actions.join("")}</div>
@@ -219,7 +226,7 @@
     }
 
     async function taskAction(id, action) {
-      if (action === "delete" && !confirm("Delete this task record?")) return;
+      if (action === "delete" && !confirm("确认删除该任务记录？")) return;
       try {
         const response = await fetch("task_action", {
           method: "POST",
@@ -229,7 +236,7 @@
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || response.status);
       } catch (err) {
-        alert(`Action failed: ${err.message}`);
+        alert(`操作失败：${err.message}`);
       }
       refreshTasks().catch(() => { });
     }

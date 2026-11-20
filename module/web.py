@@ -294,16 +294,21 @@ def get_download_list():
     result = []
     for chat_id, messages in download_result.items():
         for idx, value in messages.items():
-            is_already_down = value["down_byte"] == value["total_size"]
+            total_size = value["total_size"]
+            # "finished" is set when the download completed; covers the
+            # unknown-total-size case (total_size == 0) which would
+            # otherwise show up as "downloading" forever
+            is_already_down = value.get("finished") or (
+                total_size and value["down_byte"] >= total_size
+            )
 
-            if already_down and not is_already_down:
+            if already_down != bool(is_already_down):
                 continue
 
-            total_size = value["total_size"]
             progress = (
                 round(value["down_byte"] / total_size * 100, 1)
                 if total_size
-                else 0
+                else (100 if is_already_down else 0)
             )
             download_speed = format_byte(value["download_speed"]) + "/s"
             result.append(

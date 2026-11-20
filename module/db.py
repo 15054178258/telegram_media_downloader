@@ -22,7 +22,16 @@ CREATE TABLE IF NOT EXISTS bot_download_task (
     download_filter TEXT,
     status TEXT NOT NULL DEFAULT 'running',
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL)
+"""
+
+_DOWNLOADED_SCHEMA = """
+CREATE TABLE IF NOT EXISTS downloaded_message (
+    chat_id TEXT NOT NULL,
+    message_id INTEGER NOT NULL,
+    file_name TEXT,
+    downloaded_at TEXT NOT NULL,
+    PRIMARY KEY (chat_id, message_id)
 )
 """
 
@@ -38,7 +47,39 @@ def init_db(db_path: str) -> None:
     _conn = sqlite3.connect(db_path, check_same_thread=False)
     _conn.row_factory = sqlite3.Row
     _conn.execute(_SCHEMA)
+    _conn.execute(_DOWNLOADED_SCHEMA)
     _conn.commit()
+
+
+def mark_downloaded(
+    chat_id, message_id: Optional[int], file_name: Optional[str] = None
+) -> None:
+    """Record a successfully downloaded message (persists across restarts)."""
+    if _conn is None or message_id is None:
+        return
+    _conn.execute(
+        "INSERT OR REPLACE INTO downloaded_message "
+        "(chat_id, message_id, file_name, downloaded_at) VALUES (?, ?, ?, ?)",
+        (
+            str(chat_id),
+            message_id,
+            file_name,
+            datetime.now().isoformat(timespec="seconds"),
+        ),
+    )
+    _conn.commit()
+
+
+def has_downloaded(chat_id, message_id: Optional[int]) -> bool:
+    """Whether this message was already downloaded (recorded in db)."""
+    if _conn is None or message_id is None:
+        return False
+    cur = _conn.execute(
+        "SELECT 1 FROM downloaded_message "
+        "WHERE chat_id = ? AND message_id = ? LIMIT 1",
+        (str(chat_id), message_id),
+    )
+    return cur.fetchone() is not None
 
 
 def add_task(

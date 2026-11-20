@@ -13,7 +13,8 @@ from rich.logging import RichHandler
 
 from module.app import Application, ChatDownloadConfig, DownloadStatus, TaskNode
 from module.bot import start_download_bot, stop_download_bot
-from module.download_stat import update_download_status
+from module import db
+from module.download_stat import set_download_finished, update_download_status
 from module.get_chat_history_v2 import get_chat_history_v2
 from module.language import _t
 from module.pyrogram_extension import (
@@ -44,6 +45,8 @@ CONFIG_NAME = "config.yaml"
 DATA_FILE_NAME = "data.yaml"
 APPLICATION_NAME = "media_downloader"
 app = Application(CONFIG_NAME, DATA_FILE_NAME, APPLICATION_NAME)
+# persisted download records live here too (also used by bot mode)
+db.init_db(os.path.join(os.path.abspath("."), "db", "bot_task.db"))
 
 queue: asyncio.Queue = asyncio.Queue()
 RETRY_TIME_OUT = 3
@@ -295,11 +298,13 @@ async def save_msg_to_file(
     os.makedirs(os.path.dirname(file_name), exist_ok=True)
 
     if _is_exist(file_name):
+        db.mark_downloaded(chat_id, message.id, file_name)
         return DownloadStatus.SkipDownload, None
 
     with open(file_name, "w", encoding="utf-8") as f:
         f.write(message.text or "")
 
+    db.mark_downloaded(chat_id, message.id, file_name)
     return DownloadStatus.SuccessDownload, file_name
 
 
@@ -408,6 +413,11 @@ async def download_media(
     # NOTE: do not pre-fetch the message here, it costs one extra API
     # round-trip per file. Expired file references are handled by the
     # BadRequest branch below which re-fetches the message on demand.
+    if db.has_downloaded(node.chat_id, message.id):
+        logger.info(
+            f"id={message.id} {_t('already download,download skipped')} (db).\n"
+        )
+        return DownloadStatus.SkipDownload, None
     try:
         for _type in media_types:
             _media = getattr(message, _type, None)
@@ -432,6 +442,9 @@ async def download_media(
                             f"id={message.id} {ui_file_name} "
                             f"{_t('already download,download skipped')}.\n"
                         )
+                        # remember it, so the file can be moved away
+                        # without triggering a re-download later
+                        db.mark_downloaded(node.chat_id, message.id, file_name)
 
                         return DownloadStatus.SkipDownload, None
             else:
@@ -468,6 +481,8 @@ async def download_media(
             if temp_download_path and isinstance(temp_download_path, str):
                 _check_download_finish(media_size, temp_download_path, ui_file_name)
                 _move_to_download_path(temp_download_path, file_name)
+                db.mark_downloaded(node.chat_id, message.id, file_name)
+                set_download_finished(node.chat_id, message.id)
                 # TODO: if not exist file size or media
                 return DownloadStatus.SuccessDownload, file_name
         except pyrogram.errors.exceptions.bad_request_400.BadRequest:

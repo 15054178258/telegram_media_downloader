@@ -27,6 +27,21 @@ def get_download_result() -> dict:
     return _download_result
 
 
+def set_download_finished(chat_id, message_id) -> None:
+    """Mark a download entry as finished.
+
+    Needed when the total size is unknown (total_size == 0): without
+    this flag such entries would show up as "downloading" forever.
+    """
+    entry = _download_result.get(chat_id, {}).get(message_id)
+    if entry is None:
+        return
+    if not entry.get("total_size"):
+        entry["total_size"] = entry["down_byte"]
+    entry["finished"] = True
+    entry["download_speed"] = 0
+
+
 def get_total_download_speed() -> int:
     """get total download speed"""
     return _total_download_speed
