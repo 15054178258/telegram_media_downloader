@@ -219,6 +219,68 @@ def get_tasks():
     return jsonify([dict(row) for row in db.get_recent_tasks(30)])
 
 
+@_flask_app.route("/task_action", methods=["POST"])
+@login_required
+def task_action():
+    """Manage bot download tasks from the dashboard: stop / resume / delete."""
+    import asyncio
+
+    from module import bot as bot_module
+
+    data = request.get_json(silent=True) or {}
+    try:
+        task_db_id = int(data.get("id"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid task id"}), 400
+
+    action = data.get("action")
+    if action not in ("stop", "resume", "delete"):
+        return jsonify({"error": "invalid action"}), 400
+
+    if not bot_module.is_bot_ready():
+        return jsonify({"error": "bot is not running"}), 409
+
+    if action == "stop":
+        # only sets a flag - safe to call from the flask thread
+        bot_module.stop_task_by_db_id(task_db_id)
+        db.update_task_status(task_db_id, "stopped")
+        return jsonify({"ok": True, "action": action})
+
+    if action == "delete":
+        bot_module.remove_task_by_db_id(task_db_id)
+        removed = db.delete_task(task_db_id)
+        return jsonify({"ok": True, "action": action, "removed": removed})
+
+    # action == "resume": re-enqueue the task on the bot event loop
+    live = [
+        node
+        for node in bot_module.find_task_nodes_by_db_id(task_db_id)
+        if not node.is_finish()
+    ]
+    if live:
+        return jsonify({"error": "task is already running"}), 409
+
+    # progress messages are sent to the first numeric allowed user;
+    # report_bot_status swallows send errors so 0 is a safe fallback
+    from_user_id = 0
+    for uid in bot_module._bot.allowed_user_ids:
+        if isinstance(uid, int) or str(uid).lstrip("-").isdigit():
+            from_user_id = int(uid)
+            break
+
+    future = asyncio.run_coroutine_threadsafe(
+        bot_module.requeue_task(task_db_id, from_user_id),
+        bot_module._bot.app.loop,
+    )
+    try:
+        resumed = future.result(timeout=30)
+    except Exception:  # pylint: disable = broad-except
+        return jsonify({"error": "failed to resume task"}), 500
+    if not resumed:
+        return jsonify({"error": "task not found"}), 404
+    return jsonify({"ok": True, "action": action})
+
+
 @_flask_app.route("/get_download_list")
 @login_required
 def get_download_list():

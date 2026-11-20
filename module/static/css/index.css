@@ -352,3 +352,38 @@ body {
     font-size: 17px;
   }
 }
+
+/* ---------- task action buttons ---------- */
+
+.task-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.btn-sm {
+  border: 1px solid var(--border, #d0d7de);
+  background: var(--bg, #f6f8fa);
+  color: var(--text, #1f2328);
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+  min-height: 30px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn-sm:hover {
+  filter: brightness(0.95);
+}
+
+.btn-sm:active {
+  transform: scale(0.97);
+}
+
+.btn-sm.danger {
+  border-color: #f0b1b1;
+  color: #c0392b;
+  background: #fdf3f2;
+}

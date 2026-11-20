@@ -82,6 +82,17 @@ def update_task_status(task_id: int, status: str) -> None:
     _conn.commit()
 
 
+def delete_task(task_id: int) -> bool:
+    """Delete a task row. Returns True if a row was removed."""
+    if _conn is None or task_id is None:
+        return False
+    cur = _conn.execute(
+        "DELETE FROM bot_download_task WHERE id = ?", (task_id,)
+    )
+    _conn.commit()
+    return cur.rowcount > 0
+
+
 def get_task(task_id: int) -> Optional[sqlite3.Row]:
     """Fetch a single task row by id."""
     if _conn is None:

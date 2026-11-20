@@ -193,6 +193,17 @@
           ? `<div class="task-folder">&#128193; ${escapeHtml(task.custom_path)}</div>` : "";
         const filter = task.download_filter
           ? `<div class="task-filter">&#128269; ${escapeHtml(task.download_filter)}</div>` : "";
+        const actions = [];
+        if (task.status === "running") {
+          actions.push(`<button class="btn-sm" onclick="taskAction(${task.id}, 'stop')">&#9209; Stop</button>`);
+          actions.push(`<button class="btn-sm danger" onclick="taskAction(${task.id}, 'delete')">&#128465; Delete</button>`);
+        } else if (task.status === "stopped") {
+          actions.push(`<button class="btn-sm" onclick="taskAction(${task.id}, 'resume')">&#9654; Resume</button>`);
+          actions.push(`<button class="btn-sm danger" onclick="taskAction(${task.id}, 'delete')">&#128465; Delete</button>`);
+        } else {
+          actions.push(`<button class="btn-sm" onclick="taskAction(${task.id}, 'resume')">&#8635; Run again</button>`);
+          actions.push(`<button class="btn-sm danger" onclick="taskAction(${task.id}, 'delete')">&#128465; Delete</button>`);
+        }
         return `
         <div class="task-card">
           <div class="dl-head">
@@ -202,8 +213,25 @@
           <div class="task-range">messages ${task.start_id} - ${task.end_id === 0 ? "end" : task.end_id}</div>
           ${folder}${filter}
           <div class="task-time">${escapeHtml(task.updated_at || "")}</div>
+          <div class="task-actions">${actions.join("")}</div>
         </div>`;
       }).join("");
+    }
+
+    async function taskAction(id, action) {
+      if (action === "delete" && !confirm("Delete this task record?")) return;
+      try {
+        const response = await fetch("task_action", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: id, action: action }),
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error || response.status);
+      } catch (err) {
+        alert(`Action failed: ${err.message}`);
+      }
+      refreshTasks().catch(() => { });
     }
 
     /* ---------- stats ---------- */

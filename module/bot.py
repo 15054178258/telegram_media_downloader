@@ -1080,40 +1080,8 @@ async def resume_tasks(client: pyrogram.Client, message: pyrogram.types.Message)
 
     resumed_count = 0
     for task_id in task_ids:
-        row = db.get_task(task_id)
-        if row is None or row["status"] == "done":
-            continue
-
-        chat_id = (
-            int(row["chat_id"]) if str(row["chat_id"]).lstrip("-").isdigit()
-            else row["chat_id"]
-        )
-        chat_download_config = ChatDownloadConfig()
-        chat_download_config.last_read_message_id = row["start_id"]
-        chat_download_config.download_filter = row["download_filter"]
-
-        limit = 0
-        if row["end_id"]:
-            limit = row["end_id"] - row["start_id"] + 1
-
-        node = TaskNode(
-            chat_id=chat_id,
-            from_user_id=message.from_user.id,
-            limit=limit,
-            start_offset_id=row["start_id"],
-            end_offset_id=row["end_id"],
-            bot=_bot.bot,
-            task_id=_bot.gen_task_id(),
-            custom_path=row["custom_path"],
-        )
-        node.db_task_id = row["id"]
-
-        db.update_task_status(row["id"], "running")
-        _bot.add_task_node(node)
-        _bot.app.loop.create_task(
-            _bot.download_chat_task(_bot.client, chat_download_config, node)
-        )
-        resumed_count += 1
+        if await requeue_task(task_id, message.from_user.id):
+            resumed_count += 1
 
     if resumed_count:
         await client.send_message(
@@ -1124,6 +1092,79 @@ async def resume_tasks(client: pyrogram.Client, message: pyrogram.types.Message)
         await client.send_message(
             message.from_user.id, _t("No unfinished tasks")
         )
+
+
+async def requeue_task(task_db_id: int, from_user_id) -> bool:
+    """Re-enqueue a persisted download task by its db row id.
+
+    Must be called on the bot event loop (e.g. via run_coroutine_threadsafe
+    from the web thread). Used by /resume and the web dashboard.
+    """
+    row = db.get_task(task_db_id)
+    if row is None:
+        return False
+
+    chat_id = (
+        int(row["chat_id"]) if str(row["chat_id"]).lstrip("-").isdigit()
+        else row["chat_id"]
+    )
+    chat_download_config = ChatDownloadConfig()
+    chat_download_config.last_read_message_id = row["start_id"]
+    chat_download_config.download_filter = row["download_filter"]
+
+    limit = 0
+    if row["end_id"]:
+        limit = row["end_id"] - row["start_id"] + 1
+
+    node = TaskNode(
+        chat_id=chat_id,
+        from_user_id=from_user_id,
+        limit=limit,
+        start_offset_id=row["start_id"],
+        end_offset_id=row["end_id"],
+        bot=_bot.bot,
+        task_id=_bot.gen_task_id(),
+        custom_path=row["custom_path"],
+    )
+    node.db_task_id = row["id"]
+
+    db.update_task_status(row["id"], "running")
+    _bot.add_task_node(node)
+    _bot.app.loop.create_task(
+        _bot.download_chat_task(_bot.client, chat_download_config, node)
+    )
+    return True
+
+
+def find_task_nodes_by_db_id(task_db_id: int) -> list:
+    """Live TaskNodes created from the given db row (thread-safe read)."""
+    return [
+        node
+        for node in list(_bot.task_node.values())
+        if node.db_task_id == task_db_id
+    ]
+
+
+def stop_task_by_db_id(task_db_id: int) -> bool:
+    """Stop live task(s) of a db row. Thread-safe (only sets a flag)."""
+    nodes = find_task_nodes_by_db_id(task_db_id)
+    for node in nodes:
+        node.stop_transmission()
+    return bool(nodes)
+
+
+def remove_task_by_db_id(task_db_id: int) -> int:
+    """Stop and detach live task(s) of a db row. Thread-safe."""
+    nodes = find_task_nodes_by_db_id(task_db_id)
+    for node in nodes:
+        node.stop_transmission()
+        _bot.remove_task_node(node.task_id)
+    return len(nodes)
+
+
+def is_bot_ready() -> bool:
+    """Whether the bot is started and can accept management actions."""
+    return bool(_bot.bot and _bot.app and _bot.download_chat_task)
 
 
 async def get_forward_task_node(
